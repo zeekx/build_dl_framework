@@ -1,6 +1,6 @@
 from .core_simple import setup_variable
 
-is_core_simple = True
+is_core_simple = False
 
 if is_core_simple:
     from dezero.core_simple import Variable

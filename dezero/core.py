@@ -80,7 +80,7 @@ class Variable:
     def reset_grad(self):
         self.grad = None
 
-    def backward(self, retain_grad = False):
+    def backward(self, retain_grad=False, create_graph=False):
         def pop_func(alist):
             return heapq.heappop(alist)
         
@@ -88,28 +88,31 @@ class Variable:
             heapq.heappush(alist, f)
 
         if self.grad is None:
-            self.grad = np.ones_like(self.data)
+            self.grad = Variable(np.ones_like(self.data))
         
         fs = [self.creator]            
         while fs:
             f = pop_func(fs)
             ygs = [o().grad for o in f.outputs]
-            xgs = f.backward(*ygs)
-            if not isinstance(xgs, tuple):
-                xgs = (xgs,)
-    
-            for x, g in zip(f.inputs, xgs):
-                if x.grad is None:
-                    x.grad = g
-                    if x.creator is not None: # append the function once when the var: x first appeared
-                        append_func(fs, x.creator)
-                else: # Var:x, is repeated
-                    x.grad = x.grad + g
-            
-            # for the very begin of variables, their backward codes Do NOT reach here, because they don't have any creator
-            if not retain_grad:
-                for y in f.outputs:
-                    y().grad = None # y is a weakref of the output
+
+            with using_config('enable_backprop', create_graph):
+                xgs = f.backward(*ygs)
+                if not isinstance(xgs, tuple):
+                    xgs = (xgs,)
+        
+                for x, g in zip(f.inputs, xgs):
+                    if x.grad is None:
+                        x.grad = g
+                        if x.creator is not None: # append the function once when the var: x first appeared
+                            append_func(fs, x.creator)
+                    else: # Var:x, is repeated
+                        x.grad = x.grad + g
+                
+                # for the very begin of variables, their backward codes Do NOT reach here,
+                # because they don't have any creator
+                if not retain_grad:
+                    for y in f.outputs:
+                        y().grad = None # y is a weakref of the output
 
 def as_variable(x):
     if isinstance(x, Variable):
@@ -182,7 +185,7 @@ class Pow(Function):
         
     # x^e
     def backward(self, gy):
-        x, exp = self.inputs[0].data, self.exp
+        x, exp = self.inputs[0], self.exp
         return gy * (exp * (x ** (exp-1)))
 
 class Neg(Function):
@@ -197,7 +200,7 @@ class Mul(Function):
         return a * b
     
     def backward(self, gy):
-        a, b = self.inputs[0].data, self.inputs[-1].data
+        a, b = self.inputs
         return gy * b, gy * a
     
 class Div(Function):
@@ -209,7 +212,7 @@ class Div(Function):
     # u = 1 / b = b^ -1
     # 'y/'b = 'y/'u * ('u/'b) = a * (-1 * b ** -2)
     def backward(self, gy):
-        a, b = self.inputs[0].data, self.inputs[-1].data
+        a, b = self.inputs
         return gy * 1 / b, gy * a * (-1) * (1 / (b ** 2))
 
 class Add(Function):
